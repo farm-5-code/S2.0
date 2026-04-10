@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sports Prediction System</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body{background:#f5f7fb;}
+    .card-soft{border:0;border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.06);}
+    .metric-pill{display:inline-block;padding:.4rem .7rem;border-radius:999px;background:#eef2ff;font-size:.9rem;margin-right:.4rem;margin-bottom:.4rem;}
+    .prob-label{width:92px;font-weight:600;}
+    .small-muted{color:#6c757d;font-size:.95rem;}
+    .match-row:hover{background:#f8f9fa;cursor:pointer;}
+    pre{white-space:pre-wrap;}
+  </style>
+</head>
+<body>
+<div class="container py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+    <div>
+      <h1 class="mb-1">Sports Prediction System</h1>
+      <div class="text-secondary">Faster match selection, clearer prediction cards, and simple self-use analytics.</div>
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-secondary" id="loadHistoryBtn">History</button>
+      <button class="btn btn-outline-secondary" id="loadAccuracyBtn">Accuracy</button>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-4">
+      <div class="card card-soft p-3">
+        <h5 class="mb-3">Analyze match</h5>
+        <form id="analysisForm">
+          <div class="mb-3">
+            <label class="form-label">Sport</label>
+            <input class="form-control" id="sport" value="football" placeholder="sport">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Competition</label>
+            <input class="form-control" id="competition" value="epl" placeholder="competition">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Home team</label>
+            <input class="form-control" id="homeTeam" value="Arsenal" placeholder="home team">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Away team</label>
+            <input class="form-control" id="awayTeam" value="Chelsea" placeholder="away team">
+          </div>
+          <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="useCache" checked><label class="form-check-label">Use cache</label></div>
+          <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="forceRefresh"><label class="form-check-label">Force refresh</label></div>
+          <button class="btn btn-primary w-100" type="submit">Analyze</button>
+        </form>
+      </div>
+
+      <div class="card card-soft p-3 mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h5 class="mb-0">Matches by date</h5>
+          <button class="btn btn-sm btn-outline-primary" id="loadMatchesBtn">Load</button>
+        </div>
+        <div class="row g-2">
+          <div class="col-7"><input type="date" class="form-control" id="matchDate"></div>
+          <div class="col-5"><input class="form-control" id="matchCompetitionFilter" placeholder="competition"></div>
+        </div>
+        <div id="matches" class="mt-3 small-muted">Pick a date and load scheduled matches.</div>
+      </div>
+    </div>
+
+    <div class="col-lg-8">
+      <div class="card card-soft p-4 mb-4">
+        <h5 class="mb-3">Prediction result</h5>
+        <div id="alertBox"></div>
+        <div id="resultCard" class="small-muted">Run an analysis to see a user-friendly result card.</div>
+      </div>
+
+      <div class="card card-soft p-4">
+        <h5 class="mb-3">History / reports</h5>
+        <div id="secondaryPanel" class="small-muted">You can load recent analyses or an accuracy snapshot.</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+$('matchDate').value = new Date().toISOString().slice(0,10);
+
+async function api(endpoint, options={}){
+  const r=await fetch(endpoint, options);
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(d?.error?.message || d?.error?.code || 'API request failed');
+  return d;
+}
+function esc(v){ return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function pct(v){ return `${Math.round((Number(v)||0)*100)}%`; }
+function badgeClass(band){ return ({high:'success', medium:'primary', low:'warning', degraded:'danger'})[band] || 'secondary'; }
+function outcomeLabel(key){ return ({home_win:'Home win', draw:'Draw', away_win:'Away win'})[key] || key; }
+
+function renderPrediction(data){
+  const p=data.prediction || {};
+  const q=data.data_quality_summary || {};
+  const probs=p.probabilities || {};
+  const warnings=(data.warnings || []).map(w => `<div class="alert alert-warning py-2 mb-2">${esc(w.message)}</div>`).join('');
+  $('resultCard').innerHTML = `
+    ${warnings}
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+      <div>
+        <div class="text-secondary">${esc(data.competition)} · ${esc(data.sport)}</div>
+        <h3 class="mb-1">${esc(data.home_team)} vs ${esc(data.away_team)}</h3>
+        <div class="small-muted">Engine: ${esc(data.engine_used)} · ${data.cached ? 'cache' : 'live'} · latency ${esc(data.latency_ms)} ms</div>
+      </div>
+      <div class="text-end">
+        <div class="metric-pill">Prediction: <strong>${esc(outcomeLabel(p.outcome))}</strong></div>
+        <div class="metric-pill">Confidence: <strong>${esc(Math.round(p.confidence || 0))}%</strong></div>
+      </div>
+    </div>
+
+    <div class="mb-4">
+      <div class="d-flex align-items-center mb-2"><div class="prob-label">Home</div><div class="progress flex-grow-1"><div class="progress-bar" style="width:${pct(probs.home_win)}"></div></div><div class="ms-2">${pct(probs.home_win)}</div></div>
+      <div class="d-flex align-items-center mb-2"><div class="prob-label">Draw</div><div class="progress flex-grow-1"><div class="progress-bar bg-secondary" style="width:${pct(probs.draw)}"></div></div><div class="ms-2">${pct(probs.draw)}</div></div>
+      <div class="d-flex align-items-center"><div class="prob-label">Away</div><div class="progress flex-grow-1"><div class="progress-bar bg-dark" style="width:${pct(probs.away_win)}"></div></div><div class="ms-2">${pct(probs.away_win)}</div></div>
+    </div>
+
+    <div class="mb-3">
+      <span class="badge text-bg-${badgeClass(q.band)}">Data quality: ${esc(q.band || 'unknown')}</span>
+      <span class="ms-2 small-muted">score ${esc(q.score ?? data.data_quality)}</span>
+      <div class="mt-2">${esc(q.message || '')}</div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="border rounded-4 p-3 h-100">
+          <div class="fw-semibold mb-2">Key factors</div>
+          ${(p.factors || []).length ? `<ul class="mb-0">${p.factors.map(f=>`<li>${esc(f)}</li>`).join('')}</ul>` : '<div class="small-muted">No factor breakdown available.</div>'}
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="border rounded-4 p-3 h-100">
+          <div class="fw-semibold mb-2">Missing factors</div>
+          ${(q.missing_factors || []).length ? `<ul class="mb-0">${q.missing_factors.map(f=>`<li>${esc(f)}</li>`).join('')}</ul>` : '<div class="small-muted">No obvious missing factors.</div>'}
+        </div>
+      </div>
+    </div>
+
+    <details class="mt-3">
+      <summary>Raw features</summary>
+      <pre class="mt-2 mb-0">${esc(JSON.stringify(data.features || {}, null, 2))}</pre>
+    </details>`;
+}
+
+function renderMatches(data){
+  const matches=data.matches || [];
+  if(!matches.length){ $('matches').innerHTML = '<div class="small-muted">No matches found for that filter.</div>'; return; }
+  $('matches').innerHTML = `<div class="table-responsive"><table class="table table-sm align-middle mb-0"><tbody>${matches.map(m => `
+    <tr class="match-row" data-home="${esc(m.home_team)}" data-away="${esc(m.away_team)}" data-comp="${esc(m.competition)}">
+      <td><div class="fw-semibold">${esc(m.home_team)} vs ${esc(m.away_team)}</div><div class="small-muted">${esc(m.competition || '')}</div></td>
+      <td class="text-end"><button class="btn btn-sm btn-outline-primary pick-btn">Use</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+  document.querySelectorAll('.pick-btn').forEach(btn => btn.addEventListener('click', (e) => {
+    const tr=e.target.closest('tr');
+    $('homeTeam').value = tr.dataset.home;
+    $('awayTeam').value = tr.dataset.away;
+    if(tr.dataset.comp) $('competition').value = tr.dataset.comp;
+    window.scrollTo({top:0, behavior:'smooth'});
+  }));
+}
+
+function renderHistory(data){
+  const rows=data.analyses || [];
+  if(!rows.length){ $('secondaryPanel').innerHTML = '<div class="small-muted">No analyses yet.</div>'; return; }
+  $('secondaryPanel').innerHTML = `<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Created</th><th>Match</th><th>Prediction</th><th>Confidence</th><th>Engine</th></tr></thead><tbody>${rows.map(r => `
+    <tr><td>${esc((r.created_at || '').replace('T',' '))}</td><td>${esc(r.home_team)} vs ${esc(r.away_team)}</td><td>${esc(r.prediction_outcome_label || r.prediction_outcome)}</td><td>${esc(Math.round(r.confidence_score || 0))}%</td><td>${esc(r.engine_version)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+function renderAccuracy(data){
+  const report=data.report || {};
+  const sportRows=Object.entries(report.by_sport || {}).map(([k,v]) => `<tr><td>${esc(k)}</td><td>${esc(v.correct)}/${esc(v.total)}</td><td>${esc(v.accuracy ?? '-')}%</td></tr>`).join('');
+  const engineRows=Object.entries(report.by_engine || {}).map(([k,v]) => `<tr><td>${esc(k)}</td><td>${esc(v.correct)}/${esc(v.total)}</td><td>${esc(v.accuracy ?? '-')}%</td></tr>`).join('');
+  $('secondaryPanel').innerHTML = `
+    <div class="mb-3">
+      <div class="metric-pill">Resolved predictions: <strong>${esc(report.resolved_predictions ?? 0)}</strong></div>
+      <div class="metric-pill">Overall accuracy: <strong>${esc(report.overall_accuracy ?? '-')}%</strong></div>
+    </div>
+    <div class="row g-3">
+      <div class="col-md-6"><div class="border rounded-4 p-3"><div class="fw-semibold mb-2">By sport</div><table class="table table-sm mb-0"><tbody>${sportRows || '<tr><td class="small-muted">No resolved matches yet.</td></tr>'}</tbody></table></div></div>
+      <div class="col-md-6"><div class="border rounded-4 p-3"><div class="fw-semibold mb-2">By engine</div><table class="table table-sm mb-0"><tbody>${engineRows || '<tr><td class="small-muted">No resolved matches yet.</td></tr>'}</tbody></table></div></div>
+    </div>`;
+}
+
+$('analysisForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('alertBox').innerHTML = '';
+  try{
+    const payload={sport: $('sport').value.trim(), competition: $('competition').value.trim(), home_team: $('homeTeam').value.trim(), away_team: $('awayTeam').value.trim(), use_cache: $('useCache').checked, force_refresh: $('forceRefresh').checked};
+    const data=await api('/api/analyze',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    renderPrediction(data);
+  }catch(err){
+    $('alertBox').innerHTML = `<div class="alert alert-danger">${esc(err.message)}</div>`;
+  }
+});
+$('loadMatchesBtn').addEventListener('click', async () => {
+  const q=new URLSearchParams({sport:$('sport').value.trim(), date:$('matchDate').value, competition:$('matchCompetitionFilter').value.trim()});
+  renderMatches(await api(`/api/matches?${q.toString()}`));
+});
+$('loadHistoryBtn').addEventListener('click', async () => renderHistory(await api('/api/history?limit=20')));
+$('loadAccuracyBtn').addEventListener('click', async () => renderAccuracy(await api('/api/accuracy-report')));
+</script>
+</body>
+</html>

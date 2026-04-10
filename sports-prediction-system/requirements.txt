@@ -1,0 +1,10 @@
+flask==3.0.0
+python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+requests==2.31.0
+gunicorn==23.0.0
+numpy==2.1.2
+pandas==2.2.3
+scikit-learn==1.5.2
+joblib==1.4.2
